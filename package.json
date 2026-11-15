@@ -1,0 +1,14 @@
+{
+  "name": "mnemosyne-proxy",
+  "version": "0.1.0",
+  "description": "Local memory and privacy proxy for OpenAI-compatible chat",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "engines": { "node": "^24.12.0 || >=26.0.0" },
+  "scripts": {
+    "db:init": "node --disable-warning=ExperimentalWarning src/init-db.ts",
+    "start": "node --disable-warning=ExperimentalWarning src/index.ts",
+    "test": "node --disable-warning=ExperimentalWarning --test tests/mnemosyne.test.ts"
+  }
+}
