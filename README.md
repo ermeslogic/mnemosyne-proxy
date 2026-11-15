@@ -1,12 +1,12 @@
 # Mnemosyne Proxy
 
-**Local memory and privacy proxy for OpenAI-compatible chat.** It adds project-scoped SQLite memory, retires outdated facts, and reversibly masks detected sensitive text in requests and streamed responses. Ollama handles local entity detection and fact extraction.
+[Documentazione in italiano](README.it.md)
 
-Daemon HTTP locale per client OpenAI Chat Completions. Intercetta la chat, recupera i fatti dalla sandbox attiva, pseudonimizza il payload e ripristina i dati nella risposta. SQLite, ricerca vettoriale ed estrazione dei fatti restano sul computer.
+Mnemosyne Proxy is a local memory and privacy proxy for OpenAI-compatible chat. It adds relevant project memories to requests, pseudonymizes detected sensitive text, and restores the original values in JSON and streamed responses. SQLite stores memories on your machine, and Ollama handles entity detection and fact extraction locally.
 
-## Avvio su Windows
+## Getting started on Windows
 
-Usa [Node.js 24 LTS](https://nodejs.org/en/download) dalla versione 24.12 in poi e [Ollama](https://ollama.com/download/windows). Apri PowerShell, verifica `node --version` ed esegui questi comandi. Scarica il modello solo se manca dall’elenco di `ollama list`.
+Use [Node.js 24 LTS](https://nodejs.org/en/download) version 24.12 or later and [Ollama](https://ollama.com/download/windows). Open PowerShell and check `node --version`. Run `ollama pull` only if the model is missing from `ollama list`.
 
 ```powershell
 git clone https://github.com/ermeslogic/mnemosyne-proxy.git
@@ -17,87 +17,87 @@ npm.cmd test
 ollama pull qwen2.5-coder:1.5b
 ```
 
-Se PowerShell non trova `ollama`, usa `& "$env:LOCALAPPDATA\Programs\Ollama\ollama.exe"` al suo posto per chiamare l’eseguibile installato da Ollama per Windows.
+If PowerShell cannot find `ollama`, use `& "$env:LOCALAPPDATA\Programs\Ollama\ollama.exe"` in its place.
 
-Per eseguire Ollama in modalità locale, chiudi prima l’eventuale istanza già aperta nell’area di notifica. Avvialo in un terminale dedicato e verifica nel log che il cloud sia disabilitato. Per rendere l’impostazione permanente, imposta `disable_ollama_cloud` a `true` in `~/.ollama/server.json`.
+To run Ollama in local-only mode, close any running instance in the system tray. Start it in a separate terminal and check the log to confirm that cloud features are disabled. To persist this setting, set `disable_ollama_cloud` to `true` in `~/.ollama/server.json`.
 
 ```powershell
 $env:OLLAMA_NO_CLOUD = '1'
 ollama serve
 ```
 
-In un altro terminale aperto nella cartella del progetto, avvia Mnemosyne. Il database viene creato anche al primo avvio.
+Start Mnemosyne Proxy in a second terminal opened in the project directory. On first startup, it creates the SQLite database if needed.
 
 ```powershell
 npm.cmd start
 ```
 
-Nel client inserisci `http://127.0.0.1:8787/v1` come base URL e `qwen2.5-coder:1.5b` come modello. Se il client richiede comunque una chiave e `MN_CLIENT_KEY` è vuota, usa un valore fittizio come `local`.
+Set your client's base URL to `http://127.0.0.1:8787/v1` and its model to `qwen2.5-coder:1.5b`. If the client requires an API key and `MN_CLIENT_KEY` is unset, use any placeholder value, such as `local`.
 
-## Verifica con curl
+## Test with curl
 
 ```powershell
 curl.exe -fsS http://127.0.0.1:8787/health
 curl.exe -fsS http://127.0.0.1:8787/v1/models
-$mnBody = '{"model":"qwen2.5-coder:1.5b","stream":true,"max_tokens":80,"messages":[{"role":"user","content":"Rispondi solo con il mio nome. Mi chiamo Mario Rossi."}]}'
-$mnBody | curl.exe -sS -N http://127.0.0.1:8787/v1/chat/completions -H 'Content-Type: application/json' -H 'X-Context-Namespace: demo' -H 'X-Context-Session: prova-1' --data-binary '@-'
+$mnBody = '{"model":"qwen2.5-coder:1.5b","stream":true,"max_tokens":80,"messages":[{"role":"user","content":"Reply with my name only. My name is Jane Doe."}]}'
+$mnBody | curl.exe -sS -N http://127.0.0.1:8787/v1/chat/completions -H 'Content-Type: application/json' -H 'X-Context-Namespace: demo' -H 'X-Context-Session: test-1' --data-binary '@-'
 ```
 
-Lo stream usa `text/event-stream` e termina con `data: [DONE]`. Se il modello ripete il token ricevuto, il client vede `Mario Rossi`. Se hai impostato `MN_CLIENT_KEY`, aggiungi `-H "Authorization: Bearer $env:MN_CLIENT_KEY"` a ogni chiamata.
+The response uses `text/event-stream` and ends with `data: [DONE]`. If the model repeats the placeholder, the client receives `Jane Doe`. If you configured `MN_CLIENT_KEY`, add `-H "Authorization: Bearer $env:MN_CLIENT_KEY"` to each call.
 
-Per provare la memoria, invia in sequenza `Usiamo MySQL come database.` e `Abbiamo cambiato database da MySQL a PostgreSQL.` con lo stesso namespace. Dopo ogni risposta il worker elabora lo scambio. Chiedi `Quale database usiamo per il progetto?` prima nella sandbox `demo` e poi in `altro-progetto`. Solo `demo` riceve il ricordo di PostgreSQL. `npm.cmd test` verifica anche i due stati nel database, con server HTTP simulati e senza Ollama o credenziali.
+To test memory updates, send `We use MySQL as our database.` and then `Switched our database from MySQL to PostgreSQL.` in separate requests with the same namespace. Allow the worker to process each turn before querying the result. Ask `Which database does this project use?` in the `demo` namespace and then in `other-project`. Only the `demo` request receives the stored PostgreSQL fact. `npm.cmd test` checks the two database states using mock HTTP servers and needs neither Ollama nor credentials.
 
-## Provider
+## Providers
 
-Imposta `MN_UPSTREAM_BASE_URL` prima di avviare il daemon. Il modello richiesto dal client deve essere disponibile nel provider. Ollama rimane attivo localmente per il controllo privacy e la memoria anche quando il modello principale è remoto.
+Set `MN_UPSTREAM_BASE_URL` before starting the proxy. Choose a model available from that provider. Ollama still runs locally for privacy checks and memory extraction when the upstream model is remote.
 
-| Provider | `MN_UPSTREAM_BASE_URL` | Credenziale |
+| Provider | `MN_UPSTREAM_BASE_URL` | Credentials |
 |---|---|---|
-| Ollama | `http://127.0.0.1:11434/v1` | Nessuna per la configurazione predefinita |
-| llama.cpp | `http://127.0.0.1:8080/v1` | Chiave di `llama-server` se configurata |
+| Ollama | `http://127.0.0.1:11434/v1` | None for the default configuration |
+| llama.cpp | `http://127.0.0.1:8080/v1` | The `llama-server` API key, if configured |
 | OpenAI | `https://api.openai.com/v1` | `MN_UPSTREAM_API_KEY` |
-| Anthropic | `https://api.anthropic.com/v1` | `MN_UPSTREAM_API_KEY` e `MN_ANTHROPIC_WORKSPACE` se richiesto dalla chiave |
+| Anthropic | `https://api.anthropic.com/v1` | `MN_UPSTREAM_API_KEY` and `MN_ANTHROPIC_WORKSPACE` if the key requires it |
 
-Per Anthropic il daemon usa la compatibilità Chat Completions pubblicata dal provider. Ogni provider gestisce le opzioni abilitate sul modello selezionato. L’interfaccia del daemon copre `POST /v1/chat/completions`, `GET /v1/models` e `GET /health`. I client devono usare Chat Completions e inviare contenuti testuali. `GET /health` verifica lo stato del worker SQLite.
+Mnemosyne uses Anthropic's Chat Completions compatibility endpoint. Available options depend on the upstream provider and model. The proxy serves `POST /v1/chat/completions` for text messages, `GET /v1/models` for model discovery, and `GET /health` for the SQLite worker's status.
 
-| Variabile | Predefinita | Effetto |
+| Variable | Default | Purpose |
 |---|---|---|
-| `MN_PORT` | `8787` | Porta su `127.0.0.1` |
-| `MN_DB_PATH` | `data/mnemosyne.sqlite` | File SQLite |
-| `MN_OLLAMA_URL` | `http://127.0.0.1:11434` | Endpoint Ollama locale |
-| `MN_LOCAL_MODEL` | `qwen2.5-coder:1.5b` | Modello locale per NER ed estrazione |
-| `MN_CLIENT_KEY` | vuota | Chiave Bearer locale facoltativa, separata dalla chiave del provider |
-| `MN_NER_MODE` | `required` | `heuristic` usa le sole regole privacy con upstream su loopback, ad esempio per diagnostica |
-| `MN_PRIVACY_TIMEOUT_MS` | `90000` | Budget per il controllo NER, inclusi avvio a freddo ed elaborazione dei lotti |
-| `MN_MEMORY_TIMEOUT_MS` | `90000` | Budget per l’estrazione post-risposta |
-| `MN_UPSTREAM_TIMEOUT_MS` | `180000` | Budget per la risposta completa del provider o lo stream |
-| `MN_DECAY_PER_DAY` | `0.035` | Tasso giornaliero per i nuovi ricordi |
-| `MN_RETRIEVAL_BELOW` | `0.55` | Soglia minima per iniettare un ricordo |
-| `MN_ARCHIVE_BELOW` | `0.25` | Soglia di archiviazione della forza residua |
+| `MN_PORT` | `8787` | Port bound to `127.0.0.1` |
+| `MN_DB_PATH` | `data/mnemosyne.sqlite` | SQLite database path |
+| `MN_OLLAMA_URL` | `http://127.0.0.1:11434` | Local Ollama endpoint |
+| `MN_LOCAL_MODEL` | `qwen2.5-coder:1.5b` | Local model for named entity recognition (NER) and fact extraction |
+| `MN_CLIENT_KEY` | Unset | Optional local bearer token, separate from the upstream API key |
+| `MN_NER_MODE` | `required` | `heuristic` uses rule-based detection only and requires a loopback upstream |
+| `MN_PRIVACY_TIMEOUT_MS` | `90000` | NER time budget, including cold starts and batching |
+| `MN_MEMORY_TIMEOUT_MS` | `90000` | Time budget for post-response fact extraction |
+| `MN_UPSTREAM_TIMEOUT_MS` | `180000` | Time budget for the full upstream response or stream |
+| `MN_DECAY_PER_DAY` | `0.035` | Daily decay rate for new memories |
+| `MN_RETRIEVAL_BELOW` | `0.55` | Minimum score for adding a memory to a prompt |
+| `MN_ARCHIVE_BELOW` | `0.25` | Minimum remaining strength before archival |
 
-## Sandbox e memoria
+## Namespaces and memory
 
-- `X-Context-Namespace` seleziona un progetto preciso. In assenza dell’header, il dominio prevalente nell’ultimo messaggio sceglie `coding`, `business` o `personal`. I domini automatici sono categorie condivise della stessa istanza. Per progetti dello stesso dominio usa namespace espliciti distinti.
-- In caso ambiguo serve `X-Context-Session` per collegare la memoria tra richieste. In sua assenza il turno ambiguo viene elaborato senza apprendere un ricordo persistente. Gli header accettano 1–80 caratteri tra lettere ASCII, numeri, punto, trattino e underscore, con iniziale alfanumerica.
-- SQLite usa WAL, indici per namespace e una chiave esterna composta per i collegamenti di supersessione. Un worker thread gestisce tutte le operazioni sul DB. Il retrieval usa coseno SQL su vettori hash a 512 dimensioni con n-grammi e alias, senza download di un modello di embedding. La ricerca è esatta entro la sandbox e l’affinità tra parafrasi dipende dal lessico condiviso.
-- Il punteggio è `coseno × exp(-decay_rate × giorni_dall_ultimo_accesso) × importance_score`. Solo i fatti selezionati aggiornano `last_accessed_at`. L’archiviazione avviene quando il fattore temporale moltiplicato per l’importanza scende sotto la soglia, anche con il massimo coseno possibile. I record archiviati e superseduti restano nello storico SQLite.
-- Dopo una risposta completata, il worker analizza l’ultimo turno dell’utente, cerca fatti simili nella stessa sandbox e chiede al modello locale fatti atomici, evidenza e proprietà aggiornate. Un nuovo valore rende il precedente `superseded` e lo collega al successore in una transazione. La versione con il timestamp di osservazione più recente ha precedenza. In caso di errore del modello, una regola locale conserva l’apprendimento dei cambi di database espliciti.
-- L’apprendimento ha consistenza eventuale e una coda volatile con limite di 32 turni. Durante un sovraccarico la risposta chat continua e l’apprendimento del nuovo turno può essere saltato. A una chiusura improvvisa possono andare persi i turni ancora in coda. Avvia una sola istanza per database.
+- `X-Context-Namespace` selects the project. When the header is missing, the proxy classifies the latest message as `coding`, `business`, or `personal` if the signals point to a clear category. Automatic categories are shared across the instance. Use explicit namespaces to keep projects in the same category separate.
+- For ambiguous turns, supply `X-Context-Session` to carry memory across requests. Without that header, the proxy answers ambiguous turns without saving a persistent memory. Both headers accept 1 to 80 ASCII letters, digits, periods, hyphens, or underscores and must start with a letter or digit.
+- SQLite uses WAL mode, per-namespace indexes, and a composite foreign key to link superseded facts. A worker thread handles database operations. Retrieval runs an exact cosine similarity search within the namespace using 512-dimensional feature-hashed vectors with n-grams and aliases. Paraphrase matching depends on shared vocabulary.
+- The retrieval score is `cosine * exp(-decay_rate * days_since_last_access) * importance_score`. Selected facts update `last_accessed_at`. A fact is archived when its time-weighted importance falls below the threshold, even at maximum cosine similarity. Archived and superseded facts stay in SQLite as history.
+- After a response completes, the worker reads the latest user message, retrieves similar facts from the same namespace, and asks the local model for individual facts, supporting evidence, and changed properties. When a value changes, a transaction marks the old fact `superseded` and links it to the replacement. The most recently observed value takes precedence. A local rule can still learn explicit database changes if model extraction fails.
+- Memory updates are eventually consistent and use an in-memory queue of up to 32 turns. Chat continues during overload, and new turns can be skipped for learning. An abrupt shutdown can drop queued turns. Run one proxy instance per database.
 
 ## Privacy
 
-- Regex per segreti e identificatori comuni, seguite dal riconoscimento di entità Ollama sul testo già pseudonimizzato. In modalità `required`, un errore o timeout del controllo ferma la richiesta con `503` prima del provider. La latenza prima del primo token include il controllo locale. L’estrazione ordinaria avviene in background.
-- Ogni coppia sessione/sandbox usa una chiave HMAC volatile, con 30 minuti di inattività e un massimo di 512 sessioni. Se il client omette l’header di sessione, la sandbox stabile usa la sessione predefinita. Ogni richiesta può ripristinare solo i valori che ha appena mascherato. La risposta JSON e lo stream ripristinano il testo e gli argomenti dei tool, anche quando un token è frammentato tra eventi.
-- Il DB conserva i fatti ripuliti con marcatori generici, senza la mappa reversibile. I metadati tecnici del provider, come i `logprobs`, mantengono i token pseudonimizzati. Il daemon forza `store: false` quando il client fornisce l’opzione. I criteri di retention del provider dipendono dal servizio configurato.
-- Il daemon ascolta su IPv4 loopback, controlla `Host` e blocca origini browser. Le credenziali del client e del provider sono separate. Gli upstream remoti richiedono HTTPS. Il modello NER e la configurazione sono parte del perimetro fidato. L’istanza è per un singolo utente e i client locali autorizzati possono scegliere qualunque namespace.
-- Regex e NER possono perdere nomi, segreti in formati insoliti e dati codificati dentro testo. Usa un provider locale per conversazioni che richiedono che tutto il contenuto resti sul computer. L’applicazione client riceve i valori ripristinati, anche negli argomenti dei tool.
+- The proxy applies patterns for common secrets and identifiers, then runs Ollama's local NER on the pseudonymized text. In `required` mode it returns `503` before forwarding if that check fails or times out. The preflight check contributes to first-token latency. Fact extraction runs in the background.
+- Each session and namespace pair uses an in-memory HMAC key with a 30-minute idle timeout. The store holds up to 512 sessions. Without a session header, a stable namespace uses its default session. A response can restore only the values that its request masked. JSON responses and SSE streams restore text and tool arguments, including placeholders split across events.
+- SQLite stores cleaned facts with generic markers in place of detected values. The reversible mapping stays in memory. Provider metadata such as `logprobs` retains pseudonyms. If the client supplies `store`, the proxy sets it to `false`. Upstream retention depends on the provider.
+- The proxy binds to IPv4 loopback, validates `Host`, and blocks browser-origin requests. It uses separate client and upstream credentials and requires HTTPS for remote upstreams. The NER model and its configuration form part of the trusted boundary. This is a single-user instance, and authorized local clients can select any namespace.
+- Pattern matching and NER can miss names, unusual secret formats, or encoded data. Use a local upstream when the entire conversation must remain on your computer. The client receives restored values in chat responses and tool arguments.
 
-## Riferimenti
+## References
 
-- [SQLite in Node.js](https://nodejs.org/api/sqlite.html) e [TypeScript in Node.js](https://nodejs.org/api/typescript.html)
-- [API Ollama](https://docs.ollama.com/api/chat) e [configurazione locale](https://docs.ollama.com/faq)
-- [Compatibilità OpenAI di Anthropic](https://platform.claude.com/docs/en/cli-sdks-libraries/libraries/openai-sdk) e [server llama.cpp](https://github.com/ggml-org/llama.cpp/tree/master/tools/server)
+- [SQLite in Node.js](https://nodejs.org/api/sqlite.html) and [TypeScript in Node.js](https://nodejs.org/api/typescript.html)
+- [Ollama API](https://docs.ollama.com/api/chat) and [local configuration](https://docs.ollama.com/faq)
+- [Anthropic OpenAI compatibility](https://platform.claude.com/docs/en/cli-sdks-libraries/libraries/openai-sdk) and [llama.cpp server](https://github.com/ggml-org/llama.cpp/tree/master/tools/server)
 
-## Licenza
+## License
 
-Distribuito con [licenza MIT](LICENSE).
+Released under the [MIT License](LICENSE).
